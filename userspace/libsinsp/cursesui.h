@@ -356,7 +356,9 @@ public:
 	void render();
 	void turn_search_on(search_caller_interface* ifc, string header_text);
 	uint64_t get_time_delta();
+#ifndef NOCURSESUI
 	void run_action(sinsp_view_action_info* action);
+#endif
 
 	//
 	// Return true if the application is supposed to exit

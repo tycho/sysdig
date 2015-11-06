@@ -2166,6 +2166,7 @@ uint64_t sinsp_cursesui::get_time_delta()
 	}
 }
 
+#ifndef NOCURSESUI
 void sinsp_cursesui::run_action(sinsp_view_action_info* action)
 {
 	string resolved_command;
@@ -2276,5 +2277,6 @@ void sinsp_cursesui::run_action(sinsp_view_action_info* action)
 	//
 	render();
 }
+#endif // NOCURSESUI
 
 #endif // CSYSDIG
