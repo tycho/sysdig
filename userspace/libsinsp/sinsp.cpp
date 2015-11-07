@@ -128,6 +128,7 @@ sinsp::sinsp() :
 	m_meinfo.m_pievt.m_fdinfo = NULL;
 	m_meinfo.m_n_procinfo_evts = 0;
 	m_meta_event_callback = NULL;
+	m_meta_event_callback_data = NULL;
 }
 
 sinsp::~sinsp()
@@ -584,6 +585,17 @@ void sinsp::add_meta_event_and_repeat(sinsp_evt *metaevt)
 	m_skipped_evt = &m_evt;
 }
 
+void sinsp::add_meta_event_callback(meta_event_callback cback, void* data)
+{
+	m_meta_event_callback = cback;
+	m_meta_event_callback_data = data;
+}
+
+void sinsp::remove_meta_event_callback()
+{
+	m_meta_event_callback = NULL;
+}
+
 void schedule_next_threadinfo_evt(sinsp* _this, void* data)
 {
 	sinsp_proc_metainfo* mei = (sinsp_proc_metainfo*)data;
@@ -646,7 +658,7 @@ int32_t sinsp::next(OUT sinsp_evt **puevt)
 
 		if(m_meta_event_callback != NULL)
 		{
-			m_meta_event_callback(this, &m_meinfo);
+			m_meta_event_callback(this, m_meta_event_callback_data);
 		}
 	}
 	else
@@ -743,7 +755,7 @@ int32_t sinsp::next(OUT sinsp_evt **puevt)
 
 						m_meinfo.m_piscapevt->ts = m_next_flush_time_ns - (ONE_SECOND_IN_NS + 1);
 						m_meinfo.m_next_evt = &m_evt;
-						m_meta_event_callback = &schedule_next_threadinfo_evt;
+						add_meta_event_callback(&schedule_next_threadinfo_evt, &m_meinfo);
 						schedule_next_threadinfo_evt(this, &m_meinfo);
 					}
 

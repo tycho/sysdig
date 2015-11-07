@@ -49,12 +49,25 @@ bool should_drop(sinsp_evt *evt);
 #endif
 
 extern sinsp_protodecoder_list g_decoderlist;
+extern sinsp_evttables g_infotables;
 
 sinsp_parser::sinsp_parser(sinsp *inspector) :
 	m_inspector(inspector),
 	m_tmp_evt(m_inspector),
 	m_fd_listener(NULL)
 {
+	// XXX For Alex: set proper size here based on your needs. 
+	// This needs to fit your joson + the scap_evt struct + the lenght 
+	m_k8s_metaevets_state.m_piscapevt = (scap_evt*)new char[1024];
+	m_k8s_metaevets_state.m_piscapevt->type = PPME_K8S_E;
+
+	m_k8s_metaevets_state.m_metaevt.m_inspector = m_inspector;
+	m_k8s_metaevets_state.m_metaevt.m_info = &(g_infotables.m_event_info[PPME_SYSDIGEVENT_X]);
+	m_k8s_metaevets_state.m_metaevt.m_pevt = NULL;
+	m_k8s_metaevets_state.m_metaevt.m_cpuid = 0;
+	m_k8s_metaevets_state.m_metaevt.m_evtnum = 0;
+	m_k8s_metaevets_state.m_metaevt.m_pevt = m_k8s_metaevets_state.m_piscapevt;
+	m_k8s_metaevets_state.m_metaevt.m_fdinfo = NULL;
 }
 
 sinsp_parser::~sinsp_parser()
@@ -1440,6 +1453,47 @@ void sinsp_parser::parse_openat_dir(sinsp_evt *evt, char* name, int64_t dirfd, O
 	}
 }
 
+void schedule_more_k8s_evts(sinsp* inspector, void* data)
+{
+	k8s_metaevets_state* state = (k8s_metaevets_state*)data;
+
+	if(state->m_new_group == true)
+	{
+		state->m_new_group = false;
+		inspector->add_meta_event(&state->m_metaevt);
+		return;
+	}
+
+	uint32_t n_additional_k8s_events_to_add = state->m_n_additional_k8s_events_to_add;
+	string payload = "payload " + to_string(state->m_n_additional_k8s_events_to_add);
+
+	//
+	// Initialize the k8s headers 
+	// (remember, we statically allocated a max of 1024 bytes for the event)
+	//
+	state->m_piscapevt->len = sizeof(scap_evt) + sizeof(uint16_t) + payload.size() + 1;
+	uint16_t* plen = (uint16_t*)((char *)state->m_piscapevt + sizeof(struct ppm_evt_hdr));
+	*plen = (uint16_t)payload.size();
+	uint8_t* edata = (uint8_t*)(plen + 1);
+	memcpy(edata, payload.c_str(), payload.size() + 1);
+
+	//
+	// This can be optionally used to insert more events
+	//
+	state->m_n_additional_k8s_events_to_add--;
+	if(state->m_n_additional_k8s_events_to_add == 0)
+	{
+		inspector->remove_meta_event_callback();
+	}
+	else
+	{
+		//
+		// Push the k8s event
+		//
+		inspector->add_meta_event(&state->m_metaevt);
+	}
+}
+
 void sinsp_parser::parse_open_openat_creat_exit(sinsp_evt *evt)
 {
 	sinsp_evt_param *parinfo;
@@ -1453,6 +1507,27 @@ void sinsp_parser::parse_open_openat_creat_exit(sinsp_evt *evt)
 	string sdir;
 
 	ASSERT(evt->m_tinfo);
+
+	//////////////////////////////////////////////////////////////////////////////
+	//////////////////////////////////////////////////////////////////////////////
+
+	//
+	// Associate this meta event to a thread.
+	// Note: this might not be necessary in your case
+	//
+	m_k8s_metaevets_state.m_piscapevt->tid = evt->get_tid();
+
+	//
+	// This can be optionally used to insert more events
+	//
+	m_k8s_metaevets_state.m_new_group = true;
+	m_k8s_metaevets_state.m_n_additional_k8s_events_to_add = 4;
+	m_inspector->add_meta_event_callback(&schedule_more_k8s_evts, &m_k8s_metaevets_state);
+
+	schedule_more_k8s_evts(m_inspector, &m_k8s_metaevets_state);
+
+	//////////////////////////////////////////////////////////////////////////////
+	//////////////////////////////////////////////////////////////////////////////
 
 	//
 	// Load the enter event so we can access its arguments

@@ -667,6 +667,8 @@ public:
 	void import_ipv4_interface(const sinsp_ipv4_ifinfo& ifinfo);
 	void add_meta_event(sinsp_evt *metaevt);
 	void add_meta_event_and_repeat(sinsp_evt *metaevt);
+	void add_meta_event_callback(meta_event_callback cback, void* data);
+	void remove_meta_event_callback();
 
 	void refresh_ifaddr_list();
 
@@ -809,6 +811,7 @@ private:
 	sinsp_evt* m_metaevt;
 	sinsp_evt* m_skipped_evt;
 	meta_event_callback m_meta_event_callback;
+	void* m_meta_event_callback_data;
 
 	//
 	// End of second housekeeping

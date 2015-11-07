@@ -23,6 +23,15 @@ along with sysdig.  If not, see <http://www.gnu.org/licenses/>.
 
 class sinsp_fd_listener;
 
+class k8s_metaevets_state
+{
+public:
+	bool m_new_group;
+	uint32_t m_n_additional_k8s_events_to_add;
+	sinsp_evt m_metaevt;
+	scap_evt* m_piscapevt;
+};
+
 class sinsp_parser
 {
 public:
@@ -133,6 +142,11 @@ private:
 	// The protocol decoders allocated by this parser
 	//
 	vector<sinsp_protodecoder*> m_protodecoders;
+
+	//
+	// For Alex
+	//
+	k8s_metaevets_state m_k8s_metaevets_state;
 
 	friend class sinsp_analyzer;
 	friend class sinsp_analyzer_fd_listener;
