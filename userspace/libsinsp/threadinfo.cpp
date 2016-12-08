@@ -371,7 +371,7 @@ void sinsp_threadinfo::init(scap_threadinfo* pi)
 	set_cgroups(pi->cgroups, pi->cgroups_len);
 	m_root = pi->root;
 	ASSERT(m_inspector);
-	m_inspector->m_container_manager.resolve_container(this, m_inspector->m_islive);
+	m_inspector->m_container_manager.resolve_container(this, !m_inspector->is_offline());
 	//
 	// Prepare for filtering
 	//

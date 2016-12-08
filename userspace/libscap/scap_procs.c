@@ -56,6 +56,8 @@ int32_t scap_proc_fill_info_from_stats(char* procdirname, struct scap_threadinfo
 	int64_t tmp;
 	uint32_t uid;
 	uint64_t ppid;
+	uint64_t vpid;
+	uint64_t vtid;
 	int64_t sid;
 	uint32_t vmsize_kb;
 	uint32_t vmrss_kb;
@@ -165,14 +167,30 @@ int32_t scap_proc_fill_info_from_stats(char* procdirname, struct scap_threadinfo
 				ASSERT(false);
 			}
 		}
+		else if(strstr(line, "NSpid:") == line)
+		{
+			nfound++;
+			if(sscanf(line, "NSpid: %*u %" PRIu64, &vtid) == 1)
+			{
+				tinfo->vtid = vtid;
+			}
+		}
+		else if(strstr(line, "NStgid:") == line)
+		{
+			nfound++;
+			if(sscanf(line, "NStgid: %*u %" PRIu64, &vpid) == 1)
+			{
+				tinfo->vpid = vpid;
+			}
+		}
 
-		if(nfound == 6)
+		if(nfound == 8)
 		{
 			break;
 		}
 	}
 
-	ASSERT(nfound == 6 || nfound == 5);
+	ASSERT(nfound == 8 || nfound == 6 || nfound == 5);
 
 	fclose(f);
 
@@ -338,7 +356,7 @@ int32_t scap_proc_fill_cgroups(struct scap_threadinfo* tinfo, const char* procdi
 
 static int32_t scap_get_vtid(scap_t* handle, int64_t tid, int64_t *vtid)
 {
-	if(handle->m_file)
+	if(handle->m_mode != SCAP_MODE_LIVE)
 	{
 		ASSERT(false);
 		return SCAP_FAILURE;
@@ -363,7 +381,7 @@ static int32_t scap_get_vtid(scap_t* handle, int64_t tid, int64_t *vtid)
 
 static int32_t scap_get_vpid(scap_t* handle, int64_t tid, int64_t *vpid)
 {
-	if(handle->m_file)
+	if(handle->m_mode != SCAP_MODE_LIVE)
 	{
 		ASSERT(false);
 		return SCAP_FAILURE;
@@ -388,7 +406,7 @@ static int32_t scap_get_vpid(scap_t* handle, int64_t tid, int64_t *vpid)
 
 int32_t scap_getpid_global(scap_t* handle, int64_t* pid)
 {
-	if(handle->m_file)
+	if(handle->m_mode != SCAP_MODE_LIVE)
 	{
 		ASSERT(false);
 		return SCAP_FAILURE;
@@ -661,12 +679,14 @@ static int32_t scap_proc_add_from_proc(scap_t* handle, uint32_t tid, int parentt
 		return SCAP_FAILURE;
 	}
 
-	if(scap_get_vtid(handle, tinfo->tid, &tinfo->vtid) == SCAP_FAILURE)
+	// These values should be read already from /status file, leave these
+	// fallback functions for older kernels < 4.1
+	if(tinfo->vtid == -1 && scap_get_vtid(handle, tinfo->tid, &tinfo->vtid) == SCAP_FAILURE)
 	{
 		tinfo->vtid = tinfo->tid;
 	}
 
-	if(scap_get_vpid(handle, tinfo->tid, &tinfo->vpid) == SCAP_FAILURE)
+	if(tinfo->vpid == -1 && scap_get_vpid(handle, tinfo->tid, &tinfo->vpid) == SCAP_FAILURE)
 	{
 		tinfo->vpid = tinfo->pid;
 	}
@@ -965,6 +985,28 @@ bool scap_is_thread_alive(scap_t* handle, int64_t pid, int64_t tid, const char* 
 
 	return false;
 #endif // HAS_CAPTURE
+}
+
+int scap_proc_scan_proc_table(scap_t *handle)
+{
+	char filename[SCAP_MAX_PATH_SIZE];
+	//
+	// Create the process list
+	//
+	handle->m_lasterr[0] = '\0';
+
+	snprintf(filename, sizeof(filename), "%s/proc", scap_get_host_root());
+	return scap_proc_scan_proc_dir(handle, filename, -1, -1, NULL, handle->m_lasterr, true);
+}
+
+void scap_refresh_proc_table(scap_t* handle)
+{
+	if(handle->m_proclist)
+	{
+		scap_proc_free_table(handle);
+		handle->m_proclist = NULL;
+	}
+	scap_proc_scan_proc_table(handle);
 }
 
 void scap_proc_free(scap_t* handle, struct scap_threadinfo* proc)

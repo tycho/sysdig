@@ -76,6 +76,7 @@ typedef struct scap_device
 //
 struct scap
 {
+	scap_mode_t m_mode;
 	scap_device* m_devs;
 	uint32_t m_ndevs;
 #ifdef USE_ZLIB

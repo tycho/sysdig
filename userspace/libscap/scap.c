@@ -27,6 +27,7 @@ along with sysdig.  If not, see <http://www.gnu.org/licenses/>.
 #include <fcntl.h>
 #include <poll.h>
 #include <errno.h>
+#include <sys/time.h>
 #endif // _WIN32
 
 #include "scap.h"
@@ -96,6 +97,7 @@ scap_t* scap_open_live_int(char *error,
 	// Preliminary initializations
 	//
 	memset(handle, 0, sizeof(scap_t));
+	handle->m_mode = SCAP_MODE_LIVE;
 
 	//
 	// Find out how many devices we have to open, which equals to the number of CPUs
@@ -301,6 +303,7 @@ scap_t* scap_open_offline_int(const char* fname,
 	//
 	// Preliminary initializations
 	//
+	handle->m_mode = SCAP_MODE_FILE;
 	handle->m_proc_callback = proc_callback;
 	handle->m_proc_callback_context = proc_callback_context;
 	handle->m_devs = NULL;
@@ -376,19 +379,117 @@ scap_t* scap_open_live(char *error)
 	return scap_open_live_int(error, NULL, NULL, true);
 }
 
-scap_t* scap_open(scap_open_args args, char *error)
+scap_t* scap_open_nodriver_int(char *error,
+						   proc_entry_callback proc_callback,
+						   void* proc_callback_context,
+						   bool import_users)
 {
-	if(args.fname != NULL)
+#if !defined(HAS_CAPTURE)
+	snprintf(error, SCAP_LASTERR_SIZE, "live capture not supported on %s", PLATFORM_NAME);
+	return NULL;
+#else
+	char filename[SCAP_MAX_PATH_SIZE];
+	scap_t* handle = NULL;
+
+	//
+	// Allocate the handle
+	//
+	handle = (scap_t*)malloc(sizeof(scap_t));
+	if(!handle)
 	{
-		return scap_open_offline_int(args.fname, error, 
-			args.proc_callback, args.proc_callback_context,
-			args.import_users);
+		snprintf(error, SCAP_LASTERR_SIZE, "error allocating the scap_t structure");
+		return NULL;
+	}
+
+	//
+	// Preliminary initializations
+	//
+	memset(handle, 0, sizeof(scap_t));
+	handle->m_mode = SCAP_MODE_NODRIVER;
+
+	//
+	// Extract machine information
+	//
+	handle->m_proc_callback = proc_callback;
+	handle->m_proc_callback_context = proc_callback_context;
+	handle->m_machine_info.num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+	handle->m_machine_info.memory_size_bytes = (uint64_t)sysconf(_SC_PHYS_PAGES) * sysconf(_SC_PAGESIZE);
+	gethostname(handle->m_machine_info.hostname, sizeof(handle->m_machine_info.hostname) / sizeof(handle->m_machine_info.hostname[0]));
+	handle->m_machine_info.reserved1 = 0;
+	handle->m_machine_info.reserved2 = 0;
+	handle->m_machine_info.reserved3 = 0;
+	handle->m_machine_info.reserved4 = 0;
+	handle->m_driver_procinfo = NULL;
+
+	//
+	// Create the interface list
+	//
+	if(scap_create_iflist(handle) != SCAP_SUCCESS)
+	{
+		scap_close(handle);
+		snprintf(error, SCAP_LASTERR_SIZE, "error creating the interface list");
+		return NULL;
+	}
+
+	//
+	// Create the user list
+	//
+	if(import_users)
+	{
+		if(scap_create_userlist(handle) != SCAP_SUCCESS)
+		{
+			scap_close(handle);
+			snprintf(error, SCAP_LASTERR_SIZE, "error creating the interface list");
+			return NULL;
+		}
 	}
 	else
 	{
-		return scap_open_live_int(error, args.proc_callback, 
-			args.proc_callback_context,
-			args.import_users);
+		handle->m_userlist = NULL;
+	}
+
+	handle->m_fake_kernel_proc.tid = -1;
+	handle->m_fake_kernel_proc.pid = -1;
+	handle->m_fake_kernel_proc.flags = 0;
+	snprintf(handle->m_fake_kernel_proc.comm, SCAP_MAX_PATH_SIZE, "kernel");
+	snprintf(handle->m_fake_kernel_proc.exe, SCAP_MAX_PATH_SIZE, "kernel");
+	handle->m_fake_kernel_proc.args[0] = 0;
+	handle->refresh_proc_table_when_saving = true;
+
+	//
+	// Create the process list
+	//
+	error[0] = '\0';
+	snprintf(filename, sizeof(filename), "%s/proc", scap_get_host_root());
+	if(scap_proc_scan_proc_dir(handle, filename, -1, -1, NULL, error, true) != SCAP_SUCCESS)
+	{
+		scap_close(handle);
+		snprintf(error, SCAP_LASTERR_SIZE, "error creating the process list. Make sure you have root credentials.");
+		return NULL;
+	}
+
+	return handle;
+#endif // HAS_CAPTURE
+}
+
+scap_t* scap_open(scap_open_args args, char *error)
+{
+	switch(args.mode)
+	{
+	case SCAP_MODE_FILE:
+		return scap_open_offline_int(args.fname, error,
+									 args.proc_callback, args.proc_callback_context,
+									 args.import_users);
+	case SCAP_MODE_LIVE:
+		return scap_open_live_int(error, args.proc_callback,
+								  args.proc_callback_context,
+								  args.import_users);
+	case SCAP_MODE_NODRIVER:
+		return scap_open_nodriver_int(error, args.proc_callback,
+									  args.proc_callback_context,
+									  args.import_users);
+	default:
+		return NULL;
 	}
 }
 
@@ -398,7 +499,7 @@ void scap_close(scap_t* handle)
 	{
 		gzclose(handle->m_file);
 	}
-	else
+	else if(handle->m_mode == SCAP_MODE_LIVE)
 	{
 #if defined(HAS_CAPTURE)
 		uint32_t j;
@@ -724,17 +825,40 @@ static int32_t scap_next_live(scap_t* handle, OUT scap_evt** pevent, OUT uint16_
 #endif
 }
 
+static int32_t scap_next_nodriver(scap_t* handle, OUT scap_evt** pevent, OUT uint16_t* pcpuid)
+{
+	static scap_evt evt;
+	evt.len = 0;
+	evt.tid = -1;
+	evt.type = PPME_GENERIC_E;
+
+	usleep(100000);
+
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+
+	evt.ts = tv.tv_sec * (uint64_t) 1000000000 + tv.tv_usec * 1000;
+	*pevent = &evt;
+	return SCAP_SUCCESS;
+}
+
 int32_t scap_next(scap_t* handle, OUT scap_evt** pevent, OUT uint16_t* pcpuid)
 {
 	int32_t res;
 
-	if(handle->m_file)
+	switch(handle->m_mode)
 	{
+	case SCAP_MODE_FILE:
 		res = scap_next_offline(handle, pevent, pcpuid);
-	}
-	else
-	{
+		break;
+	case SCAP_MODE_LIVE:
 		res = scap_next_live(handle, pevent, pcpuid);
+		break;
+	case SCAP_MODE_NODRIVER:
+		res = scap_next_nodriver(handle, pevent, pcpuid);
+		break;
+	default:
+		res = SCAP_FAILURE;
 	}
 
 	if(res == SCAP_SUCCESS)

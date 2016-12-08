@@ -230,8 +230,15 @@ typedef void (*proc_entry_callback)(void* context,
 /*!
   \brief Arguments for scap_open
 */
+typedef enum {
+	SCAP_MODE_FILE,
+	SCAP_MODE_LIVE,
+	SCAP_MODE_NODRIVER
+} scap_mode_t;
+
 typedef struct scap_open_args
 {
+	scap_mode_t mode;
 	const char* fname; ///< The name of the file to open. NULL for live captures.
 	proc_entry_callback proc_callback; ///< Callback to be invoked for each thread/fd that is extracted from /proc, or NULL if no callback is needed.
 	void* proc_callback_context; ///< Opaque pointer that will be included in the calls to proc_callback. Ignored if proc_callback is NULL.
@@ -867,6 +874,7 @@ int32_t scap_enable_dynamic_snaplen(scap_t* handle);
 int32_t scap_disable_dynamic_snaplen(scap_t* handle);
 void scap_proc_free_table(scap_t* handle);
 void scap_refresh_iflist(scap_t* handle);
+void scap_refresh_proc_table(scap_t* handle);
 void scap_set_refresh_proc_table_when_saving(scap_t* handle, bool refresh);
 uint64_t scap_ftell(scap_t *handle);
 void scap_fseek(scap_t *handle, uint64_t off);
