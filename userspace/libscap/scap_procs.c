@@ -733,7 +733,7 @@ static int32_t scap_proc_add_from_proc(scap_t* handle, uint32_t tid, int parentt
 	//
 	// Only add fds for processes, not threads
 	//
-	if(parenttid == -1)
+	if(handle->m_mode != SCAP_MODE_NODRIVER && parenttid == -1)
 	{
 		res = scap_fd_scan_fd_dir(handle, dir_name, tinfo, sockets_by_ns, error);
 	}
@@ -845,8 +845,9 @@ int32_t scap_proc_scan_proc_dir(scap_t* handle, char* procdirname, int parenttid
 		//
 		// See if this process includes tasks that need to be added
 		//
+		// TODO: not sure if we can improve this
 		snprintf(childdir, sizeof(childdir), "%s/%u/task", procdirname, (int)tid);
-		if(scap_proc_scan_proc_dir(handle, childdir, tid, tid_to_scan, procinfo, error, scan_sockets) == SCAP_FAILURE)
+		if(handle->m_mode != SCAP_MODE_NODRIVER && scap_proc_scan_proc_dir(handle, childdir, tid, tid_to_scan, procinfo, error, scan_sockets) == SCAP_FAILURE)
 		{
 			res = SCAP_FAILURE;
 			break;
