@@ -27,6 +27,7 @@ along with sysdig.  If not, see <http://www.gnu.org/licenses/>.
 mesos_auth::mesos_auth(const uri::credentials_t& dcos_enterprise_credentials,
 		       int token_refresh_interval)
 	: m_dcos_enterprise_credentials(dcos_enterprise_credentials),
+	  m_auth_uri("https://localhost/acs/api/v1/auth/login"),
 	  m_token_refresh_interval(token_refresh_interval),
 	  m_last_token_refresh_s(0)
 
@@ -41,6 +42,11 @@ mesos_auth::~mesos_auth()
 {
 }
 
+void mesos_auth::set_auth_hostname(string &hostname)
+{
+	m_auth_uri.set_host(hostname);
+}
+
 string mesos_auth::get_token()
 {
 	refresh_token();
@@ -50,7 +56,7 @@ string mesos_auth::get_token()
 void mesos_auth::authenticate()
 {
 #ifdef HAS_CAPTURE
-	sinsp_curl auth_request(uri("https://localhost/acs/api/v1/auth/login"), "", "");
+	sinsp_curl auth_request(m_auth_uri, "", "");
 	Json::FastWriter json_writer;
 	Json::Value auth_obj;
 	auth_obj["uid"] = m_dcos_enterprise_credentials.first;
